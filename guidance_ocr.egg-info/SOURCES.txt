@@ -1,0 +1,8 @@
+setup.py
+guidance_ocr/__init__.py
+guidance_ocr/transformers.py
+guidance_ocr.egg-info/PKG-INFO
+guidance_ocr.egg-info/SOURCES.txt
+guidance_ocr.egg-info/dependency_links.txt
+guidance_ocr.egg-info/top_level.txt
+tests/test_qwen2.py
