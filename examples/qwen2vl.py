@@ -7,7 +7,8 @@ from typing import Dict
 from transformers import Qwen2VLForConditionalGeneration, AutoTokenizer, AutoProcessor
 from guidance_ocr import warp_model
 
-model_path = '/workspace/model_weights/qwen2vl_2B'
+# model_path = '/workspace/model_weights/qwen2vl_2B'
+model_path = 'Qwen/Qwen2-VL-2B-Instruct'
 
 # Load the model in half-precision on the available device(s)
 model = Qwen2VLForConditionalGeneration.from_pretrained(
