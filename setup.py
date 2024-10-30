@@ -10,9 +10,9 @@ from setuptools import setup, find_packages
 
 setup(
     name="guidance_ocr",
-    version="0.1",
-    author="zhaoxuebin",
-    author_email="hzau_zxb@foxmail.com",
+    version="0.2",
+    author="zhaoxuebin;chenzhuang(equal contribution)",
+    author_email="hzau_zxb@foxmail.com;1064022027@qq.com",
     description="guide vlm inference with ocr",
     url=" ", 
     install_requires = ["transformers>=4.45.0", 'torch>=2.3.0'],
