@@ -11,7 +11,7 @@ from setuptools import setup, find_packages
 setup(
     name="guidance_ocr",
     version="0.2",
-    author="zhaoxuebin;chenzhuang(equal contribution)",
+    author="zhaoxuebin;chenzhuang(equal contribution);xukaihe",
     author_email="hzau_zxb@foxmail.com;1064022027@qq.com",
     description="guide vlm inference with ocr",
     url=" ", 
