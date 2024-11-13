@@ -121,6 +121,54 @@ OpenGVLab/InternVL2-26B
 4. 基于生成的next-token更新规则引擎
 5. 重复上述2-4步直到输出eos_id 或 步骤2中所有token均被过滤掉
 
+## 推理加速
+目前支持vllm框架进行推理加速, 实现代码如下
+```python
+from vllm import LLM, SamplingParams
+from guidance_ocr import get_ocr_processor
+
+model = LLM(
+    model=model_path,
+    max_model_len=4096,
+    max_num_seqs=5,
+    # Note - mm_processor_kwargs can also be passed to generate/chat calls
+    mm_processor_kwargs={
+        "min_pixels": 28 * 28,
+        "max_pixels": 1280 * 28 * 28,
+    },
+)
+
+...
+
+logit_processor = get_ocr_processor(
+    text_list = text_list,                           # OCR识别出来的文字
+    tokenizer = tokenizer,                          # 模型的tokenizer
+    top_k = 50,                                     # 生成时使用的top_k参数，建议设置在50-100的范围内
+    eos_id = 151645                                 # 模型的结束生成ID
+)
+
+sampling_params = SamplingParams(
+    temperature=0.2,
+    max_tokens=128,
+    stop_token_ids=None,
+    logits_processors = [logit_processor] # 这里放我们的logit_processor
+)
+inputs = {
+    "prompt": prompt,
+    "multi_modal_data": {
+        "image": data
+    },
+}
+
+
+outputs = model.generate(inputs, sampling_params=sampling_params)
+
+for o in outputs:
+    generated_text = o.outputs[0].text
+    print(generated_text)
+```
+完整示例代码见`./examples/qwen2vl_json_vllm.py`
+
 ## 缺陷与解决方案
 
 ### 缺陷
