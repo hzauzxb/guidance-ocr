@@ -1,3 +1,4 @@
 /tests
 /guidance_ocr.egg-info
 *.pyc
+/speculative_model

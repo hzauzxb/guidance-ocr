@@ -13,10 +13,12 @@ class Trie:
 
     def insert(self, word):
         node = self.root
-        for char in word:
+        for char_id, char in enumerate(word):
             if char not in node.children:
                 node.children[char] = TrieNode(char)
             node = node.children[char]
+        
+        node.is_end_of_word = True
 
     def get_init_avinodes(self, root_node):
         if len(root_node.children) == 0:
@@ -26,3 +28,9 @@ class Trie:
             for children_char in root_node.children.keys():
                 avi_nodes += self.get_init_avinodes(root_node.children[children_char])
             return avi_nodes
+
+    def get_head_nodes(self):
+        head_nodes = []
+        for key in self.root.children.keys():
+            head_nodes.append(self.root.children[key])
+        return head_nodes
