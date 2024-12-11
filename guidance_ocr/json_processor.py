@@ -1,6 +1,7 @@
 # 在generate函数中加入logit_processor即可完成对模型输出的规范化， 支持输出json
-from typing import List, Dict, Set, Tuple, Optional
+import re
 from queue import Queue
+from typing import List, Dict, Set, Tuple, Optional
 
 import torch
 from transformers import AutoTokenizer
@@ -13,47 +14,74 @@ def init_trie(text_list):
         trie.insert(text)
     return trie
 
-def is_valid_node(text, node):
+
+def get_valid_nodes_from_root(generated_text, root_node, head_nodes):
+    avi_nodes = []
+    use_all_nodes = False
+
+    if len(generated_text) == 0:
+        if root_node.char is None: # root节点且无输入的话，可以使用全部节点
+            return True, []
+        else:
+            return False, [root_node.children[key] for key in root_node.children.keys()]
+
+    # 在子节点中找
+    for node_key in root_node.children.keys():
+        node = root_node.children[node_key]
+        if node.char == generated_text[0]:
+            use_all_nodes, sub_avi_nodes = get_valid_nodes_from_root(generated_text[1:], node, head_nodes)
+            if use_all_nodes:
+                return True, []
+            avi_nodes = avi_nodes + sub_avi_nodes
+       
+    # 如果是字符串末尾节点还可以在头节点中找
+    if root_node.is_end_of_word:
+        for node in head_nodes:
+            if node.char == generated_text[0]:
+                use_all_nodes, sub_avi_nodes = get_valid_nodes_from_root(generated_text[1:], node, head_nodes)
+                if use_all_nodes:
+                    return True, []
+                avi_nodes = avi_nodes + sub_avi_nodes
+    return False, avi_nodes
+
+def get_valid_nodes(generated_text, all_nodes, head_nodes):
+    valid_nodes = []
+    if len(generated_text) == 0:
+        return all_nodes
+
+    for node in all_nodes:
+        if node.char is not None and node.char == generated_text[0]:
+            use_all_nodes, sub_valid_nodes = get_valid_nodes_from_root(
+                generated_text[1:], node, head_nodes
+            )
+            if use_all_nodes:
+                return all_nodes
+            else:
+                valid_nodes += sub_valid_nodes
+    
+    return valid_nodes
+    
+def is_valid(text, node, head_nodes):
+    if len(text) == 0:
+        return True
+
     if node.char != text[0]:
-        return False, None, False
-    
-    if len(text) == 1:
-        avi_nodes = []
-        for children_key in node.children:
-            avi_nodes.append(node.children[children_key]) 
-        return True, avi_nodes, node.is_end_of_word
+        return False
 
-    is_valid = False; avi_nodes = None; is_end_of_word = False
-    for sub_node_key in node.children.keys():
-        sub_is_valid, sub_avi_nodes, sub_is_end_of_word = is_valid_node(text[1:], node.children[sub_node_key])
-        if sub_is_valid:
-            is_valid = True
-            avi_nodes = sub_avi_nodes
-            is_end_of_word = sub_is_end_of_word
-            break
-        
-    return is_valid, avi_nodes, is_end_of_word
-        
-def is_valid(avi_nodes, text, all_head_nodes):
-    # 判断输出是否合法
-    is_valid = False; possible_avi_nodes = []
-    end_flag = 0
-    for node in avi_nodes:
-        sub_is_valid, sub_avi_nodes, is_end_of_word = is_valid_node(text, node)
-        if sub_is_valid:
-            is_valid = True
+    sub_nodes = [node.children[key] for key in node.children.keys()]
+    if node.is_end_of_word:
+        sub_nodes += head_nodes
 
-            if is_end_of_word and end_flag == 0:
-                possible_avi_nodes += all_head_nodes
-                end_flag = 1
-            possible_avi_nodes += sub_avi_nodes
-    
-    return is_valid, possible_avi_nodes
+    for sub_node in sub_nodes:
+        if is_valid(text[1:], sub_node, head_nodes):
+            return True
+
+    return False
 
 class JsonProcessor(object):
     def __init__(
         self, ocr_tree, key_tree, special_charset, 
-        tokenizer, top_k, eos_id
+        tokenizer, top_k, eos_id, gen_start_text
     ):
         self.ocr_tree = ocr_tree
         self.key_tree = key_tree
@@ -61,6 +89,7 @@ class JsonProcessor(object):
         self.tokenizer = tokenizer
         self.top_k = top_k
         self.eos_id = eos_id
+        self.gen_start_text = gen_start_text
 
         self.key_all_nodes = self.key_tree.get_init_avinodes(self.key_tree.root)
         self.ocr_all_nodes = self.ocr_tree.get_init_avinodes(self.ocr_tree.root)
@@ -70,97 +99,92 @@ class JsonProcessor(object):
 
         self.avi_nodes = None
 
-        self.SPECIAL_STATUS = 0
-        self.OCR_STATUS = 1
-        self.KEY_STATUS = 2
-        self.status = self.SPECIAL_STATUS
-
-        self.SPECIAL2KEY = True
-        self.SPECIAL2VALUE = False
+        self.JSON_START = 0
+        self.KEY = 1
+        self.JSON_KV = 2
+        self.VAL = 3
+        self.JSON_VKEND = 4
+       
 
         self.filter_value = -float('inf')
 
+    def get_cur_state(self, generated_text):
+        count = generated_text.count("\"")
+        if count == 0:
+            return [self.JSON_START]
+
+        double_quotes_cnt = re.findall("\"(.*?)\"", generated_text)
+        
+        if len(double_quotes_cnt) % 2 == 0:
+            if count % 2 == 1:
+                return [self.KEY, self.JSON_KV]
+            else:
+                return [self.JSON_VKEND]
+        else:
+            if count % 2 == 1:
+                return [self.VAL, self.JSON_VKEND]
+            else:
+                return [self.JSON_KV]
+
 
     def __call__(self, input_ids, scores):
+        input_text = self.tokenizer.decode(input_ids[0])
+        generated_text = input_text.split(self.gen_start_text)[-1]
+
+        # 兼容投机采样，根据已生成的token判断当前状态
+        self.status = self.get_cur_state(generated_text)
         order_indexes = scores.argsort(dim = -1, descending = True)[..., : self.top_k]
 
-        # 为了vllm做的兼容，vllm中logit_processor传的score是一维的
-        # transformers中，logit_processor的score是二维的
+        # 兼容vllm 离线部署
         if len(order_indexes) == 1:
             order_indexes = order_indexes[0]
 
+        # 如果存在key和value，需要预先计算可行的token从而节省时间
+        valid_nodes = []
+        if self.KEY in self.status:
+            key_text = generated_text.split('\"')[-1]
+            valid_nodes = get_valid_nodes(key_text, self.key_all_nodes, self.key_head_nodes)
+        if self.VAL in self.status:
+            count = generated_text.count("\"")
+            if count %2 == 0:
+                val_text = ''
+            else:
+                val_text = generated_text.split('\"')[-1]
+            valid_nodes = get_valid_nodes(val_text, self.ocr_all_nodes, self.ocr_head_nodes)
+
+        # 按logit从大到小遍历候选token
         valid_token = self.eos_id
-
         for token in order_indexes:
-            if self.status == self.SPECIAL_STATUS:
-                # 判断token是否在特殊字符中
-                if token in self.special_charset:
-                    valid_token = token
-                    break
-                text = self.tokenizer.decode(token)
-                
-                # 判断token是否在 key 中
-                if self.SPECIAL2KEY:
-                    is_key_valid, possible_avi_nodes = is_valid(self.key_all_nodes, text, self.key_head_nodes)
-                    if is_key_valid:
-                        self.status = self.KEY_STATUS
-                        self.avi_nodes = possible_avi_nodes
+            if self.JSON_START in self.status and \
+                 token in self.special_charset['json_start']:
+                valid_token = token
+
+            token_text = self.tokenizer.decode(token)
+            if self.KEY in self.status:
+                for valid_node in valid_nodes:
+                    if is_valid(token_text, valid_node, self.key_head_nodes):
+                        valid_token = token
+                        break
+            
+            if self.JSON_KV in self.status and\
+                 token in self.special_charset['json_kv']:
+                valid_token = token
+
+            if self.VAL in self.status:
+                for valid_node in valid_nodes:
+                    if is_valid(token_text, valid_node, self.ocr_head_nodes):
                         valid_token = token
                         break
 
-                # 判断token是否在ocr中
-                if self.SPECIAL2VALUE:
-                    is_ocr_valid, possible_avi_nodes = is_valid(self.ocr_all_nodes, text, self.ocr_head_nodes)
-                    
-                    if is_ocr_valid:
-                        self.status = self.OCR_STATUS
-                        self.avi_nodes = possible_avi_nodes
-                        valid_token = token
-                        break
+            if self.JSON_VKEND in self.status and \
+                 token in self.special_charset['json_vkend']:
+                valid_token = token
                 
-                if token == self.eos_id:
-                    break
-            elif self.status == self.KEY_STATUS:
-                # key 不会出现换行的情况只需从头找到尾就好
-                if len(self.avi_nodes) == 0:    # 找到尾了，需要从sepcial中来找
-                    if token in self.special_charset:
-                        valid_token = token
-                        self.status = self.SPECIAL_STATUS
-                        self.SPECIAL2VALUE = True
-                        self.SPECIAL2KEY = False
-                        break
 
-                text = self.tokenizer.decode(token)
-                is_key_valid, possible_avi_nodes = is_valid(self.avi_nodes, text, [])
-                if is_key_valid:
-                    self.avi_nodes = possible_avi_nodes
-                    valid_token = token
-                    break
-            elif self.status == self.OCR_STATUS:
-                
-                # 判断是否在value中
-                text = self.tokenizer.decode(token)
-                is_value_vaild, possible_avi_nodes = is_valid(self.avi_nodes, text, self.ocr_head_nodes)
-                if is_value_vaild:
-                    self.avi_nodes = possible_avi_nodes
-                    valid_token = token
-                    break
+            if valid_token != self.eos_id:
+                break
 
-                if token in self.special_charset:
-                    valid_token = token
-                    self.status = self.SPECIAL_STATUS
-                    self.SPECIAL2VALUE = False
-                    self.SPECIAL2KEY = True
-                    break
-
-
-
-        # 结束时重置状态
-        if valid_token == self.eos_id:
-            self.SPECIAL2KEY = True
-            self.SPECIAL2VALUE = False
-
-         # 根据合法的token更改scores
+        # 根据合法的token更改scores
         vocab_size = scores.size()[-1]
         mask = torch.ones((vocab_size), dtype = torch.bool, device = scores.device)
         mask[valid_token] = 0
@@ -178,17 +202,19 @@ def get_json_processor(
 
     if model_type == 'qwen2vl':
         special_charset = ['{\n', '}', ' :', '\n', ' ', ' \"', '\"', '\",\n', '\"\n']
-        special_charset = [tokenizer(c)['input_ids'][0] for c in special_charset]
+        special_charset = dict(
+            json_start = [tokenizer(c)['input_ids'][0] for c in ["{\n", " \"", "\"", " "]],
+            json_kv = [tokenizer(c)['input_ids'][0] for c in ["\":", " \"", "\""]],
+            json_vkend = [tokenizer(c)['input_ids'][0] for c in [" \"", "\",\n", "\"\n","}", " "]],
+        )
         if eos_id is None:
             eos_id = tokenizer(eos_text)['input_ids'][0]
-    elif model_type == 'internvl2':
-        # [364,   647, 387]
-        special_charset = ['{\n', '  ', ' \"', '\":', '\"', '\",\n', '}\n', '}', '\"\n', '\",', '\n']
-        special_charset = [tokenizer(c)['input_ids'][1] for c in special_charset]
-        if eos_id is None:
-            eos_id = tokenizer(eos_text)['input_ids'][1]
+        gen_start_text = 'assistant\n'
+    else:
+        raise NotImplementedError
 
     return JsonProcessor(
         ocr_tree, key_tree,
-        special_charset, tokenizer, top_k, eos_id = eos_id
+        special_charset, tokenizer, top_k, 
+        eos_id = eos_id, gen_start_text = gen_start_text
     )

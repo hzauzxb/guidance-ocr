@@ -62,8 +62,7 @@ stop_token_ids = None
 sampling_params = SamplingParams(
     temperature=0.2,
     max_tokens=128,
-    stop_token_ids=None,
-    logits_processors = [logit_processor]
+    stop_token_ids=None
 )
 
 
