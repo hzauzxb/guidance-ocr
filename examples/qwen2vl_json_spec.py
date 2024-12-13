@@ -17,6 +17,7 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
 
 assist_model = OCRAssistModel(
     text_list = text_list,
+    extract_keys = ['个人自付', '票据代码', '票据号码', '开票日期', '卫生材料费', '校验码'],
     model_path = model_path,
     model = model,
     model_type = 'qwen2_vl'
@@ -69,16 +70,27 @@ logit_processor = get_json_processor(
     eos_id = 151645
 )
 
-
 # import pdb; pdb.set_trace()
-st = time.time()
-generated_ids = model.generate(
-    **inputs,
-    logits_processor = [logit_processor],
-    max_new_tokens=128,
-    assistant_model = assist_model
-)
-en = time.time()
-print('------ Guidance OCR ------')
-res = tokenizer.decode(generated_ids[0][inputs['input_ids'].shape[1]:])
-print(res)#, f'\t运行时间{en - st}')
+for _ in range(10):
+    st = time.time()
+    generated_ids = model.generate(
+        **inputs,
+        logits_processor = [logit_processor],
+        max_new_tokens=128
+    )
+    en = time.time()
+    print('------ Origin ------')
+    res = tokenizer.decode(generated_ids[0][inputs['input_ids'].shape[1]:])
+    print(res, f'\tOrigin运行时间{en - st}')
+
+    st = time.time()
+    generated_ids = model.generate(
+        **inputs,
+        logits_processor = [logit_processor],
+        max_new_tokens=128,
+        assistant_model = assist_model
+    )
+    en = time.time()
+    print('------ Speculative decoding ------')
+    res = tokenizer.decode(generated_ids[0][inputs['input_ids'].shape[1]:])
+    print(res, f'\tSpec运行时间{en - st}')
