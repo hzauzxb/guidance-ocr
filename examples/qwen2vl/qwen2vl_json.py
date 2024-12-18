@@ -17,13 +17,13 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
 processor = AutoProcessor.from_pretrained(model_path)
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 
-img_path = "test.jpg"
+img_path = "../test.jpg"
 image = Image.open(img_path).convert('RGB')
 
 # resize img for stable gpu useage and can be removed
 w, h = image.size
-if max(w, h) >= 1120:
-    scale = 1120 / max(w, h)
+if max(w, h) >= 1024:
+    scale = 1024 / max(w, h)
     new_w, new_h = int(w*scale), int(h*scale)
     image = image.resize((new_w, new_h))
 

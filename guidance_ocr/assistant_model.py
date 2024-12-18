@@ -50,7 +50,7 @@ def get_valid_texts(generated_text, all_nodes):
                 cand_text_list.append(cand_text[1:])
     return cand_text_list
 
-class OCRAssistModel(object):
+class JsonAssistModel(object):
     def __init__(self, text_list, extract_keys, model_path, model, model_type):
         self.trie = init_trie(text_list)
         self.ocr_all_nodes = self.trie.get_init_avinodes(self.trie.root)
@@ -148,9 +148,6 @@ class OCRAssistModel(object):
                 output_ids = self.json_vk
 
             cand_text_list = get_valid_texts(val_text, self.ocr_all_nodes)
-            # print(val_text)
-            # print(cand_text_list)
-            # print('-----------')
             if len(cand_text_list) > 0:
                 output_ids = self.text2id(self.tokenizer, random.choice(cand_text_list))
                 output_ids = torch.cat((output_ids, self.json_vk), dim = 1)

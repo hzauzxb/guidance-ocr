@@ -121,6 +121,8 @@ OpenGVLab/InternVL2-26B
 4. 基于生成的next-token更新规则引擎
 5. 重复上述2-4步直到输出eos_id 或 步骤2中所有token均被过滤掉
 
+详细解析请参考我们的[博客](https://zhuanlan.zhihu.com/p/7783443583)
+
 ## 推理加速
 目前支持vllm框架进行推理加速, 实现代码如下
 ```python

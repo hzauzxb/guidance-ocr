@@ -1,5 +1,6 @@
 # 在generate函数中加入logit_processor即可完成对模型输出的规范化， 支持输出json
 import re
+import torch
 from queue import Queue
 from typing import List, Dict, Set, Tuple, Optional
 
@@ -58,7 +59,6 @@ def get_valid_nodes(generated_text, all_nodes, head_nodes):
                 return all_nodes
             else:
                 valid_nodes += sub_valid_nodes
-    
     return valid_nodes
     
 def is_valid(text, node, head_nodes):
@@ -97,8 +97,6 @@ class JsonProcessor(object):
         self.key_head_nodes = self.key_tree.get_head_nodes()
         self.ocr_head_nodes = self.ocr_tree.get_head_nodes()
 
-        self.avi_nodes = None
-
         self.JSON_START = 0
         self.KEY = 1
         self.JSON_KV = 2
@@ -128,7 +126,10 @@ class JsonProcessor(object):
 
 
     def __call__(self, input_ids, scores):
-        input_text = self.tokenizer.decode(input_ids[0])
+        if type(input_ids) == torch.Tensor:
+            input_text = self.tokenizer.decode(input_ids[0])
+        else:
+            input_text = self.tokenizer.decode(input_ids)
         generated_text = input_text.split(self.gen_start_text)[-1]
 
         # 兼容投机采样，根据已生成的token判断当前状态
