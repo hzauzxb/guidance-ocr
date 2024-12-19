@@ -70,7 +70,7 @@ class JsonAssistModel(object):
         self.JSON_VKEND = 4
         self.filter_value = -float('inf')
 
-        if self.model_type == 'qwen2_vl':
+        if self.model_type == 'qwen2vl':
             # 给出json的特殊字符
             self.json_begin = torch.LongTensor([[515, 220,330]]) # {\n "
             self.json_kv = torch.LongTensor([[788, 330]])      # ": "
@@ -155,6 +155,63 @@ class JsonAssistModel(object):
                 output_ids = self.json_vk
         else:
             output_ids = self.eos
+
+
+        output = self.get_output(kwargs['input_ids'], output_ids)
+        return output
+
+
+class OCRAssistModel(object):
+    def __init__(self, text_list, model_path, model, model_type):
+        self.trie = init_trie(text_list)
+        self.ocr_all_nodes = self.trie.get_init_avinodes(self.trie.root)
+        self.config = model.config
+        self.generation_config = model.generation_config
+        self.device = model.device
+        self.model_type = model_type
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self.filter_value = -float('inf')
+
+        if self.model_type == 'qwen2vl':
+            self.eos = torch.LongTensor([[151645]])
+
+            # 给出模型用于生成的字符串
+            self.gen_start_text = 'assistant\n'
+            self.text2id = qwen2vl_text2id
+
+            self.logits_shape = 151936
+        else:
+            raise NotImplementedError  
+
+    def get_output(self, input_ids, out_ids):
+        output = OutputObj()
+        output.sequences = input_ids
+        output.sequences = torch.concat([output.sequences, out_ids.to(output.sequences.device)], dim = 1)
+        output.scores = torch.ones(out_ids.shape + (self.logits_shape,)).to(output.sequences.device) * self.filter_value
+        
+        try:
+            for k, id in enumerate(out_ids[0]):
+                output.scores[0][k][id] = 1
+        except:
+            import pdb; pdb.set_trace()
+        
+        scores = [score for score in output.scores[0]]
+        output.scores = (tuple(scores))
+        return output 
+
+    def generate(self, **kwargs):
+        input_text = self.tokenizer.decode(kwargs['input_ids'][0])
+        generated_text = input_text.split(self.gen_start_text)[-1]
+        
+        val_text = generated_text.split('\"')[-1]
+        if len(val_text) == 0:
+            output_ids = self.eos
+        else:
+            cand_text_list = get_valid_texts(val_text, self.ocr_all_nodes)
+            if len(cand_text_list) > 0:
+                output_ids = self.text2id(self.tokenizer, random.choice(cand_text_list))
+            else:
+                output_ids = self.eos
 
 
         output = self.get_output(kwargs['input_ids'], output_ids)

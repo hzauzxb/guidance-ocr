@@ -15,6 +15,6 @@ setup(
     author_email="hzau_zxb@foxmail.com;1064022027@qq.com",
     description="guide vlm inference with ocr",
     url=" ", 
-    install_requires = ["transformers>=4.45.0", 'torch>=2.3.0'],
+    install_requires = ["transformers==4.46.2", 'torch>=2.3.0', "vllm"],
     packages=find_packages()
 )

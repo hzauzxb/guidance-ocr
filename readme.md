@@ -51,7 +51,7 @@ print(tokenizer.decode(generated_ids[0]))
 |-|-----|
 |请给出图中的个人自付、票据代码、票据号码、开票日期、卫生材料费和校验码，以json格式输出答案，不要输出多余内容|![](./imgs/guided_output.png)|
 
-完整示例代码见`./examples/qwen2vl_json.py`
+完整示例代码见`./examples/qwen2vl/qwen2vl_json.py`
 
 **Tips**：在写prompt时，需给出需要抽取的字段，并强调以json格式输出结果，不要输出多余内容
 
@@ -85,7 +85,7 @@ print(tokenizer.decode(generated_ids[0]))
 |-|-----|
 |请给出图中的个人自付，只需输出答案不要输出多余内容|31695.57<&#124;im_end&#124;>|
 
-完整示例代码见`./examples/qwen2vl_ocr.py`
+完整示例代码见`./examples/qwen2vl/qwen2vl_ocr.py`
 
 **Tips**：在写prompt时，需给出需要抽取的字段，并强调只输出结果，不要输出多余内容
 
@@ -96,11 +96,8 @@ Qwen/Qwen2-VL-2B-Instruct
 Qwen/Qwen2-VL-7B-Instruct
 Qwen/Qwen2-VL-72B-Instruct
 
-internvl2:
-OpenGVLab/InternVL2-1B # 不推荐，模型太小，信息抽取效果较差
-OpenGVLab/InternVL2-2B # 不推荐，模型太小，信息抽取效果较差
-OpenGVLab/InternVL2-8B
-OpenGVLab/InternVL2-26B
+后续计划支持
+InternVL2；DeepSeekVL2
 ```
 若有其他需支持的模型可以提issue
 
@@ -124,7 +121,7 @@ OpenGVLab/InternVL2-26B
 详细解析请参考我们的[博客](https://zhuanlan.zhihu.com/p/7783443583)
 
 ## 推理加速
-目前支持vllm框架进行推理加速, 实现代码如下
+支持vllm框架进行推理加速, 实现代码如下
 ```python
 from vllm import LLM, SamplingParams
 from guidance_ocr import get_ocr_processor
@@ -169,7 +166,44 @@ for o in outputs:
     generated_text = o.outputs[0].text
     print(generated_text)
 ```
-完整示例代码见`./examples/qwen2vl_json_vllm.py`
+完整示例代码见`./examples/qwen2vl/qwen2vl_json_vllm.py`, `./examples/qwen2vl/qwen2vl_ocr_vllm.py`(支持batch-decode)
+
+支持基于transformers + 投机采样的推理加速
+```python
+from transformers import Qwen2VLForConditionalGeneration, AutoTokenizer, AutoProcessor, AutoConfig
+from guidance_ocr import get_json_processor, JsonAssistModel
+
+model_path = '/workspace/model_weights/qwen2vl_2B'
+
+model = Qwen2VLForConditionalGeneration.from_pretrained(
+    model_path, torch_dtype="auto", device_map="auto"
+)
+
+assist_model = JsonAssistModel(
+    text_list = text_list,
+    extract_keys = ['个人自付', '票据代码', '票据号码', '开票日期', '卫生材料费', '校验码'], # 需抽取的字段
+    model_path = model_path,
+    model = model,
+    model_type = 'qwen2vl'
+)
+
+logit_processor = get_ocr_processor(
+    text_list = text_list,                           # OCR识别出来的文字
+    tokenizer = tokenizer,                          # 模型的tokenizer
+    top_k = 50,                                     # 生成时使用的top_k参数，建议设置在50-100的范围内
+    eos_id = 151645                                 # 模型的结束生成ID
+)
+
+...
+
+generated_ids = model.generate(
+        **inputs,
+        logits_processor = [logit_processor],
+        max_new_tokens=128,
+        assistant_model = assist_model
+    )
+```
+完整示例代码见`./examples/qwen2vl/qwen2vl_json_spec.py`
 
 ## 缺陷与解决方案
 
