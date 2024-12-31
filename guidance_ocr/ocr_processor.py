@@ -22,7 +22,10 @@ def get_valid_nodes_from_root(generated_text, root_node, head_nodes):
         if root_node.char is None: # root节点且无输入的话，可以使用全部节点
             return True, []
         else:
-            return False, [root_node.children[key] for key in root_node.children.keys()]
+            if root_node.is_end_of_word:
+                return False, [root_node.children[key] for key in root_node.children.keys()] + head_nodes
+            else:
+                return False, [root_node.children[key] for key in root_node.children.keys()]
 
     # 在子节点中找
     for node_key in root_node.children.keys():
